@@ -31,7 +31,9 @@ Notes:
 - Numeric/date/currency normalization reduces false positives while remaining strict.
 """
 
-# import argparse
+# ---------------------------
+# 1) Imports
+# ---------------------------
 from pathlib import Path
 import pandas as pd
 import numpy as np
