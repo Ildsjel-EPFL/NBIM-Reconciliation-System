@@ -23,7 +23,7 @@ from nbim_llm_breaks import run_llm_break_analysis
 
 # Load the OpenAI API Key (and other envs) from a local .env file, if present.
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 
 
 def run_strict(custody_file, nbim_file):
