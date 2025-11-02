@@ -40,10 +40,10 @@ It supports **semicolon-separated CSVs**, **locale-aware numbers**, **date norma
 
 ## 🔐 Environment variables
 
-Create a `.env` file in the project root (or export in your shell):
+Update the `OPENAI_API_KEY` with your API key the `.env` file:
 
 ```env
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=sk-XXXX
 
 # Optional overrides
 LLM_MODEL=gpt-4o-mini
