@@ -42,6 +42,88 @@ OUTPUT_COST_PER_1K=0.015
 
 ---
 
+## Explicit mapping (Custody → NBIM)
+
+The project compares **exactly** these pairs for each matched `(COAC_EVENT_KEY, BANK_ACCOUNT(S))`.  
+Header **aliases** are supported (e.g., `EX_DATE` ↔ `EXDATE`, `BANK_ACCOUNT` ↔ `BANK_ACCOUNTS`).
+
+| Custody            | NBIM                      | Type      |
+|--------------------|---------------------------|-----------|
+| COAC_EVENT_KEY     | COAC_EVENT_KEY            | text      |
+| BANK_ACCOUNTS      | BANK_ACCOUNT              | text      |
+| ISIN               | ISIN                      | text      |
+| SEDOL              | SEDOL                     | text      |
+| NOMINAL_BASIS      | NOMINAL_BASIS             | text      |
+| EX_DATE            | EXDATE                    | date      |
+| PAY_DATE           | PAYMENT_DATE              | date      |
+| CURRENCIES         | QUOTATION_CURRENCY        | currency  |
+| DIV_RATE           | DIVIDENDS_PER_SHARE       | rate      |
+| TAX_RATE           | WTHTAX_RATE               | rate      |
+| GROSS_AMOUNT       | GROSS_AMOUNT_QUOTATION    | money     |
+| NET_AMOUNT_QC      | NET_AMOUNT_QUOTATION      | money     |
+| TAX                | WTHTAX_COST_QUOTATION     | money     |
+| NET_AMOUNT_SC      | NET_AMOUNT_SETTLEMENT     | money     |
+| SETTLED_CURRENCY   | SETTLEMENT_CURRENCY       | currency  |
+
+> Keys are resolved with robust aliases on **both** sides:
+> - NBIM may provide `BANK_ACCOUNTS` instead of `BANK_ACCOUNT` (and vice versa); both are recognized.
+> - Same for `EX_DATE`/`EXDATE`, `PAY_DATE`/`PAYMENT_DATE`, etc.
+
+---
+
+## How it works
+
+### 1) Strict pass (`strict_breaks_reconciliation.py`)
+- Reads CSVs with **auto delimiter detection** (comma or semicolon).
+- Normalizes:
+  - Dates → `YYYY-MM-DD` (with **day-first** inference per column).
+  - Numbers via **locale-aware** parsing.
+  - Currencies to **upper-case**.
+- Resolves the **join keys** with aliasing:
+  - Custody: `COAC_EVENT_KEY` + `BANK_ACCOUNTS` (or `BANK_ACCOUNT`)
+  - NBIM:    `COAC_EVENT_KEY` + `BANK_ACCOUNT` (or `BANK_ACCOUNTS`)
+- Outer-joins on keys to find **missing on either side**.
+- For keys present on both sides, compares the **explicit mapping** with **type-aware** logic and tolerances.
+- Writes `breaks_flags.csv` with one row per break/missing key and a detailed **reason**.
+
+### 2) LLM enrichment (`nbim_llm_breaks.py`)
+- Groups strict breaks by `(COAC_EVENT_KEY, BANK_ACCOUNTS)`.
+- For each group, passes:
+  - The **playbook** (`llm_playbook.txt`),
+  - The **break rows** from strict,
+  - The **full row context** from both datasets.
+- Uses **OpenAI JSON mode** to return a single JSON object per group:
+  - `category` ∈ {Rounding, FX, Tax, Data entry error, Missing booking, Corporate action nuance, Unknown}
+  - `severity` ∈ {LOW, MEDIUM, HIGH}
+  - `explanation`, `proposed_actions[]`, `custodian_email_draft`
+- Writes `breaks_llm.csv`.
+
+### 3) UI (`NBIM_app.py`)
+- Upload files → click **Run Strict Compare**.
+- Shows the strict table and **auto-runs** the LLM step.
+- Shows the enriched table, with **download paths** for both CSVs.
+
+---
+## Prompt and playbook 
+Prompt for each OpenAI API call:
+```markdown
+"You are a diligent operations analyst for a sovereign wealth fund. "
+"Analyze reconciliation breaks between CUSTODY and NBIM data and propose clear, conservative actions. "
+"Follow the playbook. Respond ONLY with a JSON object matching the schema."
+```
+Playbook for SOP:
+```markdown
+1) Monetary amounts: treat differences up to +/- 0.01 (in the booking currency) as non-issues. Anything larger requires explanation.
+2) Shares/quantities: should match; micro rounding up to 1e-6 can be tolerated only if justified (e.g., fractional entitlements).
+3) Dates: EX/RECORD/PAYMENT dates must match exactly once normalized to YYYY-MM-DD.
+4) FX & rates: ensure FX math explains amount deltas; quote the applicable FX if used.
+5) Common legitimate reasons: rounding, FX conversions, ADR/withholding fees, market-specific tax rates.
+6) When escalation is needed: propose concrete next actions and include a short, professional email draft to the custodian (subject + 2–4 sentences).
+7) Keep recommendations conservative and auditable.
+```
+
+---
+
 ## Getting Started
 
 1) **Install dependencies**
